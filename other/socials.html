@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <script>
+            const urlParams = new URLSearchParams(window.location.search)
+            const platform = urlParams.get("platform")
+
+            if(platform == "discord") {
+                window.location = "https://discord.gg/aPWKu7qAFq"
+            } else if(platform == "twitter") {
+                window.location = "https://twitter.com/sellsource_co"
+            } else if(platform == "facebook") {
+                window.location = "https://www.facebook.com/groups/1404007310171490"
+            } else {
+                document.body.innerHTML += `<h1>Unknown platform: ${platform}</h1><h3>Try test.</h3>`
+            }
+        </script>
+    </body>
+</html>
