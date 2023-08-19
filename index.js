@@ -398,14 +398,6 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
-/*
-Upload to github
-Restart server
-Test
-Share docs with designer
-Set up new mongo stats for # in users and types in users
-*/
-
 /* Get route that returns a basic html page. */
 app.get("/", (req, res) => {
     try {
