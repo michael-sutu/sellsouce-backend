@@ -56,6 +56,29 @@ const validatePhone = (phone) => {
     }
 }
 
+/* Function to valide images. Takes in a url and returns whether it is a valid url. */
+const validateImage = async (url) => {
+    try {
+        let valid = false
+        const response = await fetch(url)
+        if(response.ok) {
+            valid = true
+        }
+        return {code: 200, result: valid }
+    } catch (err) {
+        return {code: 500, err: err}
+    }
+}
+
+/* Function to valide phone numbers. Takes in a string and returns whether it is a valid phone number. */
+const validateNumber = (string) => {
+    try {
+        return {code: 200, result: !isNaN(string) && !isNaN(parseFloat(string)) }
+    } catch (err) {
+        return {code: 500, err: err}
+    }
+}
+
 /* Function to create a new value in MongoDB. Takes in collection name and data to add. */
 const dbCreate = async (collection, data) => {
     try {
@@ -167,6 +190,27 @@ const getNewUserId = async (email) => {
         } else {
             return {code: 200, result: highestUserId + 1}
         }
+    } catch(err) {
+        return {code: 500, err: err}
+    } finally {
+        client.close()
+    }
+}
+
+/* Function that returns the new sourceid based on previous ones in the MongoDB database. */
+const getNewSourceId = async () => {
+    try {
+        await client.connect()
+	    const db = client.db("main")
+        const resultCursor = await db.collection("sources").find().sort({sourceId: -1})
+        const result = await resultCursor.toArray()
+
+        let highestSourceId = 0
+        if(result.length > 0) {
+            highestSourceId = result[0].sourceId
+        }
+        
+        return {code: 200, result: highestSourceId + 1}
     } catch(err) {
         return {code: 500, err: err}
     } finally {
@@ -398,6 +442,117 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
+/* Post route for created source. */
+app.post("/api/newsource", async (req, res) => {
+    try {
+        const name = req.body.name
+        const thumbnail = req.body.thumbnail
+        const private = req.body.private
+        const type = req.body.type // "open or closed"
+        let category = req.body.category
+        let price = req.body.price
+        let gallery = req.body.gallery // object with type ("video or image", and url)
+        const scale = req.body.scale // "individuals", "enterprises", or "small businesses"
+        const description = req.body.description
+        const getSource = await getNewSourceId()
+        const sourceId = getSource.result
+        let author = -1
+
+        let errors = []
+
+        if(name == "" || name == null) {
+            errors.push([1, "Listing name is required."])
+        }
+
+        if(thumbnail == "" || thumbnail == null) {
+            errors.push([2, "Listing thumbnail is required."])
+        } else {
+            let validImage = await validateImage(thumbnail)
+            if(validImage.result == false) {
+                errors.push([3, "Invalid thumbnail provided."])
+            } 
+        }
+
+        if(type == "" || type == null) {
+            errors.push([4, "Listing type is required."])
+        } else {
+            if(type != "open" && type != "closed") {
+                errors.push([5, "Invalid type provided. Must be 'open' or 'closed'."])
+            } 
+        }
+
+        if(category == "" || category == null) {
+            errors.push([6, "Listing category is required."])
+        } else {
+            category = category.replace(/'/g, '"')
+            category = JSON.parse(category)
+        }
+
+        if(price == "" || price == null) {
+            errors.push([7, "Listing price is required."])
+        } else {
+            let validNum = validateNumber(price)
+            if(validNum.result) {
+                price = parseInt(price)
+            } else {
+                errors.push([12, "Listing price must be a valid integer."])
+            }
+        }
+
+        if(scale == "" || scale == null) {
+            errors.push([8, "Listing scale is required."])
+        } else {
+            if(scale != "individuals" && scale != "enterprises" && scale != "small business") {
+                errors.push([9, "Invalid scale provided. Must be 'individuals', 'enterprises', or 'small businesses'."])
+            } 
+        }
+
+        if(description == "" || description == null) {
+            errors.push([10, "Listing description is required."])
+        }
+
+        const user = await dbGet("users", {private: private})
+        if(user.result == null) {
+            errors.push([11, "Unknown user private key."])
+        } else {
+            author = user.result.userId
+        }
+
+        if(gallery == "" || gallery == null) {
+            gallery = []
+        } else {
+            gallery = gallery.replace(/'/g, '"')
+            gallery = JSON.parse(gallery)
+        }
+
+        if(errors.length > 0) {
+            res.json({code: 401, errors: errors})
+        } else {
+            const result = await dbCreate("sources", {
+                name: name,
+                thumbnail: thumbnail,
+                author: author,
+                type: type,
+                sourceId: sourceId,
+                category: category,
+                price: price,
+                gallery: gallery,
+                scale: scale,
+                description: description
+            })
+
+            if(result.code == 200) {
+                res.json(result)
+            } else {
+                res.json(result)
+            }
+        }
+    } catch(err) {
+        console.log(err)
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Get route that returns a basic html page. */
 app.get("/", (req, res) => {
     try {
@@ -420,6 +575,15 @@ app.get("/socials", (req, res) => {
 app.get("/images/:name", (req, res) => {
     try {
         res.sendFile(__dirname+`/images/${req.params.name}`)
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Get route that returns an html file to preview how an email may look. */
+app.get("/email/:name", (req, res) => {
+    try {
+        res.sendFile(__dirname+`/emails/${req.params.name}`)
     } catch(err) {
         res.json({code: 500, err: err})
     }
