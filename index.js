@@ -233,7 +233,7 @@ const zeroInt = (number) => {
 }
 
 /* Function that writes a welcome email to someone who has just signed up. */
-const sendEmail = async (htmlPath, email, data) => {
+const sendEmail = async (htmlPath, email, data, subject) => {
     try {
         let htmlBody = await fs.promises.readFile("emails/"+htmlPath, 'utf8')
         Object.entries(data).forEach((entry) => {
@@ -244,7 +244,7 @@ const sendEmail = async (htmlPath, email, data) => {
         const mailOptions = {
             from: 'sellsource.co@gmail.com',
             to: email,
-            subject: 'Welcome to sellsource',
+            subject: subject,
             html: htmlBody
         }
         
@@ -310,7 +310,7 @@ app.post("/api/join", async (req, res) => {
             })
 
             if(result.code == 200) {
-                sendEmail("welcome.html", email, {firstName: firstName, lastName: lastName, userId: zeroInt(userId.result)})
+                sendEmail("welcome.html", email, {firstName: firstName, lastName: lastName, userId: zeroInt(userId.result)}, "Welcome to sellsource")
                 result.private = private.result
                 res.json(result)
             } else {
@@ -348,6 +348,7 @@ app.post("/api/signup", async (req, res) => {
         const password = req.body.password
         const userId = await getNewUserId(email)
         const private = randomId(15)
+        const verificationCode = randomId(6)
         let phone = ""
         if(req.body.phone) {
             const testPhone = validatePhone(req.body.phone)
@@ -400,10 +401,13 @@ app.post("/api/signup", async (req, res) => {
                         userId: userId.result,
                         private: private.result,
                         password: hash,
-                        phone: phone
+                        phone: phone,
+                        verificationCode: verificationCode.result.toUpperCase(),
+                        verified: false
                     })
         
                     if(result.code == 200) {
+                        sendEmail("verification.html", email, {firstName: firstName, lastName: lastName, vcode: verificationCode.result.toUpperCase()}, "Verify Email Address")
                         result.private = private.result
                         res.json(result)
                     } else {
@@ -411,6 +415,39 @@ app.post("/api/signup", async (req, res) => {
                     }
                 })
             })
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Post route that just takes in an account private and emails the email its verification code if not yet verified. */
+app.post("/api/sendverificationcode", async (req, res) => {
+    try {
+        const private = req.body.private
+        let result = await dbGet("users", {private: private})
+        result = result.result
+        if(result) { 
+            if(result.verified == true) {
+                res.json({code: 401, errors: [2, "Account is already verified."]})
+            } else {
+                if(result.verificationCode == undefined) {
+                    let newCode = randomId(6)
+                    newCode = newCode.result.toUpperCase()
+                    let update = await dbUpdateSet("users", {private: private}, {verificationCode: newCode, verified: false})
+                    if(update.code == 200) {
+                        sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: newCode}, "Verify Email Address")
+                        res.json({code: 200})
+                    } else {
+                        res.json({code: 500, err: update.err})
+                    }
+                } else {
+                    sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: result.verificationCode}, "Verify Email Address")
+                    res.json({code: 200})
+                }   
+            }
+        } else {
+            res.json({code: 401, errors: [1, "Unknown private."]})
         }
     } catch(err) {
         res.json({code: 500, err: err})
