@@ -454,6 +454,37 @@ app.post("/api/sendverificationcode", async (req, res) => {
     }
 })
 
+/* Post route that takes in an account private and its verification code to verify the account. */
+app.post("/api/verifyemail", async (req, res) => {
+    try {
+        const private = req.body.private
+        const code = req.body.verificationCode
+
+        let result = await dbGet("users", {private: private})
+        result = result.result
+        if(result) { 
+            if(result.verified == true) {
+                res.json({code: 401, errors: [2, "Account is already verified."]})
+            } else {
+                if(code == result.verificationCode) {
+                    let update = await dbUpdateSet("users", {private: private}, {verified: true})
+                    if(update.code == 200) {
+                        res.json({code: 200})
+                    } else {
+                        res.json({code: 500, err: update.err})
+                    }
+                } else {
+                    res.json({code: 401, errors: [3, "Invalid verification code."]})
+                } 
+            }
+        } else {
+            res.json({code: 401, errors: [1, "Unknown private."]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to login a user. */
 app.post("/api/login", async (req, res) => {
     try {
@@ -485,11 +516,11 @@ app.post("/api/newsource", async (req, res) => {
         const name = req.body.name
         const thumbnail = req.body.thumbnail
         const private = req.body.private
-        const type = req.body.type // "open or closed"
+        const type = req.body.type
         let category = req.body.category
         let price = req.body.price
-        let gallery = req.body.gallery // object with type ("video or image", and url)
-        const scale = req.body.scale // "individuals", "enterprises", or "small businesses"
+        let gallery = req.body.gallery
+        const scale = req.body.scale
         const description = req.body.description
         const getSource = await getNewSourceId()
         const sourceId = getSource.result
@@ -552,6 +583,9 @@ app.post("/api/newsource", async (req, res) => {
         if(user.result == null) {
             errors.push([11, "Unknown user private key."])
         } else {
+            if(user.result.verified !== true) {
+                errors.push([13, "Account not verified."])
+            }
             author = user.result.userId
         }
 
