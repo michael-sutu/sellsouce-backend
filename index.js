@@ -516,11 +516,11 @@ app.post("/api/newsource", async (req, res) => {
         const name = req.body.name
         const thumbnail = req.body.thumbnail
         const private = req.body.private
-        const type = req.body.type
-        let category = req.body.category
+        const visibility = req.body.visibility
+        const category = req.body.category
+        let tags = req.body.tags
         let price = req.body.price
         let gallery = req.body.gallery
-        const scale = req.body.scale
         const description = req.body.description
         const getSource = await getNewSourceId()
         const sourceId = getSource.result
@@ -541,19 +541,27 @@ app.post("/api/newsource", async (req, res) => {
             } 
         }
 
-        if(type == "" || type == null) {
-            errors.push([4, "Listing type is required."])
+        if(visibility == "" || visibility == null) {
+            errors.push([4, "Listing visibility is required."])
         } else {
-            if(type != "open" && type != "closed") {
-                errors.push([5, "Invalid type provided. Must be 'open' or 'closed'."])
+            if(visibility != "open" && visibility != "closed") {
+                errors.push([5, "Invalid visibility provided. Must be 'open' or 'closed'."])
             } 
+        }
+
+        if(tags == "" || tags == null) {
+            errors.push([8, "Listing tags are required."])
+        } else {
+            tags = tags.replace(/'/g, '"')
+            tags = JSON.parse(tags)
+
+            if(tags.length > 20) {
+                errors.push([9, "Can't have more then 20 tags."])
+            }
         }
 
         if(category == "" || category == null) {
             errors.push([6, "Listing category is required."])
-        } else {
-            category = category.replace(/'/g, '"')
-            category = JSON.parse(category)
         }
 
         if(price == "" || price == null) {
@@ -563,16 +571,8 @@ app.post("/api/newsource", async (req, res) => {
             if(validNum.result) {
                 price = parseInt(price)
             } else {
-                errors.push([12, "Listing price must be a valid integer."])
+                errors.push([13, "Listing price must be a valid integer."])
             }
-        }
-
-        if(scale == "" || scale == null) {
-            errors.push([8, "Listing scale is required."])
-        } else {
-            if(scale != "individuals" && scale != "enterprises" && scale != "small business") {
-                errors.push([9, "Invalid scale provided. Must be 'individuals', 'enterprises', or 'small businesses'."])
-            } 
         }
 
         if(description == "" || description == null) {
@@ -584,7 +584,7 @@ app.post("/api/newsource", async (req, res) => {
             errors.push([11, "Unknown user private key."])
         } else {
             if(user.result.verified !== true) {
-                errors.push([13, "Account not verified."])
+                errors.push([12, "Account not verified."])
             }
             author = user.result.userId
         }
@@ -603,16 +603,17 @@ app.post("/api/newsource", async (req, res) => {
                 name: name,
                 thumbnail: thumbnail,
                 author: author,
-                type: type,
+                visibility: visibility,
                 sourceId: sourceId,
                 category: category,
                 price: price,
                 gallery: gallery,
-                scale: scale,
-                description: description
+                description: description,
+                tags: tags
             })
 
             if(result.code == 200) {
+                result.sourceId = sourceId
                 res.json(result)
             } else {
                 res.json(result)
