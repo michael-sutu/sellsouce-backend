@@ -510,6 +510,132 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
+/* Variable that will hold all information regarding password reset sessions. */
+let resetSessions = []
+
+/* Interval to periodically check on resetSessions array and remove any expired sessions. */
+const filterSessionsInterval = setInterval((e) => {
+    let newSessions = []
+    for(let i = 0; i < resetSessions.length; i++) {
+        if(Date.now() - resetSessions[i].start < 600000) {
+            newSessions.push(resetSessions[i])
+        }
+    }
+    resetSessions = newSessions
+}, 600000)
+
+/* Post route to generate a password reset code. */
+app.post("/api/resetcode", async (req, res) => {
+    try {
+        const email = req.body.email
+        let result = await dbGet("users", {email: email})
+        result = result.result
+        if(result) {
+            let resetCode = randomId(6)
+            resetCode = resetCode.result.toUpperCase()
+            let secretCode = randomId(10)
+            secretCode = secretCode.result
+            sendEmail("reset.html", email, {firstName: result.firstName, lastName: result.lastName, resetcode: resetCode}, "Your Password Reset Code")
+
+            let newSessions = []
+            for(let i = 0; i < resetSessions.length; i++) {
+                if(resetSessions[i].email != email) {
+                    newSessions.push(resetSessions[i])
+                }
+            }
+            resetSessions = newSessions
+            resetSessions.push({resetCode: resetCode, secretCode: secretCode, email: email, start: Date.now()})
+            res.json({code: 200})
+        } else {
+            res.json({code: 401, errors: [1, "Unknown email."]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Post route to verify password reset codes. */
+app.post("/api/verifyresetcode", async (req, res) => {
+    try {
+        const email = req.body.email
+        const resetCode = req.body.resetCode
+        let chosen = -1
+        let chosenIndex = -1
+        let errors = []
+        for(let i = 0; i < resetSessions.length; i++) {
+            if(resetSessions[i].email == email) {
+                chosen = resetSessions[i]
+                chosenIndex = i
+                if(resetSessions[i].resetCode != resetCode) {
+                    errors.push([1, "Invalid reset code."])
+                } else {
+                    resetSessions[i].start = Date.now()
+                }
+            }
+        }
+
+        if(chosen == -1) {
+            errors.push([2, "No password reset sessions with that email. It might have expired."])
+        }
+
+        if(errors.length > 0) {
+            res.json({code: 401, errors: errors})
+        } else {
+            res.json({code: 200, secretCode: chosen.secretCode})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Post route to reset a users password. */
+app.post("/api/newpassword", async (req, res) => {
+    try {
+        const email = req.body.email
+        const secretCode = req.body.secretCode
+        const password = req.body.password
+        let chosen = -1
+        let chosenIndex = -1
+        let errors = []
+        for(let i = 0; i < resetSessions.length; i++) {
+            if(resetSessions[i].email == email) {
+                chosen = resetSessions[i]
+                chosenIndex = i
+                if(resetSessions[i].secretCode != secretCode) {
+                    errors.push([1, "Invalid secretCode."])
+                }
+            }
+        }
+
+        if(chosen == -1) {
+            errors.push([2, "No password reset sessions with that email. It might have expired."])
+        }
+
+        if(password == "" || password == null) {
+            errors.push([3, "Password required."])
+        }
+
+        if(errors.length > 0) {
+            res.json({code: 401, errors: errors})
+        } else {
+            resetSessions.splice(chosenIndex, 1)
+            bcrypt.genSalt(10, async (err, salt) => {
+                bcrypt.hash(password, salt, async function(err, hash) {
+                    const result = await dbUpdateSet("users", {email: email}, {password: hash})
+
+                    if(result.code == 200) {
+                        res.json(result)
+                    } else {
+                        res.json(result)
+                    }
+                })
+            })
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route for created source. */
 app.post("/api/newsource", async (req, res) => {
     try {
@@ -525,7 +651,6 @@ app.post("/api/newsource", async (req, res) => {
         const getSource = await getNewSourceId()
         const sourceId = getSource.result
         let author = -1
-
         let errors = []
 
         if(name == "" || name == null) {
