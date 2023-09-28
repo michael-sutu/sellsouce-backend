@@ -554,6 +554,30 @@ app.post("/api/resetcode", async (req, res) => {
     }
 })
 
+/* Post route to resend password reset code to email. */
+app.post("/api/resendresetcode", async (req, res) => {
+    try {
+        const email = req.body.email
+        let result = await dbGet("users", {email: email})
+        result = result.result
+        let chosen = -1
+        for(let i = 0; i < resetSessions.length; i++) {
+            if(resetSessions[i].email == email) {
+                chosen = resetSessions[i]
+            }
+        }
+
+        if(chosen == -1) {
+            res.json({code: 401, errors: [1, "No email with that password reset session. It might have expired."]})
+        } else {
+            sendEmail("reset.html", email, {firstName: result.firstName, lastName: result.lastName, resetcode: chosen.resetCode}, "Your Password Reset Code")
+            res.json({code: 200})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to verify password reset codes. */
 app.post("/api/verifyresetcode", async (req, res) => {
     try {
