@@ -510,6 +510,29 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
+/* Post route to get user account information from their private key. */
+app.post("/api/getaccount", async (req, res) => {
+    try {
+        let private = req.body.private
+        let result = await dbGet("users", {private: private})
+        result = result.result
+        if(result) {
+            res.json({code: 200, result: {
+                firstName: result.firstName,
+                lastName: result.lastName,
+                email: result.email,
+                role: result.role,
+                userId: result.userId,
+                phone: result.phone
+            }})
+        } else {
+            res.json({code: 401, errors: [1, "Unknown private."]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Variable that will hold all information regarding password reset sessions. */
 let resetSessions = []
 
