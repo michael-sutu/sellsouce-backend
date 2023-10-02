@@ -533,6 +533,33 @@ app.post("/api/getaccount", async (req, res) => {
     }
 })
 
+/* Post route to return a listings details from its sourceid. */
+app.post("/api/getsource", async (req, res) => {
+    try {
+        let sourceId = req.body.sourceId
+        let result = await dbGet("sources", {sourceId: sourceId})
+        result = result.result
+        if(result) {
+            res.json({code: 200, result: {
+                name: result.name,
+                thumbnail: result.thumbnail,
+                author: result.author,
+                visibility: result.visibility,
+                sourceId: result.sourceId,
+                category: result.category,
+                price: result.price,
+                gallery: result.gallery,
+                description: result.description,
+                tags: result.tags
+            }})
+        } else {
+            res.json({code: 401, errors: [1, "Unknown sourceId."]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Variable that will hold all information regarding password reset sessions. */
 let resetSessions = []
 
