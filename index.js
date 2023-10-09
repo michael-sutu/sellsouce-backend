@@ -1,5 +1,6 @@
 const express = require("express")
 const bcrypt = require('bcrypt')
+const multer = require('multer')
 const { MongoClient, ServerApiVersion } = require('mongodb')
 const cors = require("cors")
 const nodemailer = require('nodemailer')
@@ -8,6 +9,9 @@ const app = express()
 
 app.use(express.json())
 app.use(cors())
+
+const storage = multer.memoryStorage()
+const upload = multer({ storage })
 
 const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -348,7 +352,7 @@ app.post("/api/signup", async (req, res) => {
         const password = req.body.password
         const userId = await getNewUserId(email)
         const private = randomId(15)
-        const verificationCode = randomId(6)
+        const verificationCode = randomId(16)
         let phone = ""
         if(req.body.phone) {
             const testPhone = validatePhone(req.body.phone)
@@ -407,7 +411,8 @@ app.post("/api/signup", async (req, res) => {
                     })
         
                     if(result.code == 200) {
-                        sendEmail("verification.html", email, {firstName: firstName, lastName: lastName, vcode: verificationCode.result.toUpperCase()}, "Verify Email Address")
+                        let sendLink = "https://sellsource-backend.onrender.com/api/v?vcode="+verificationCode.result.toUpperCase()
+                        sendEmail("verification.html", email, {hreflink: sendLink, firstName: firstName, lastName: lastName, vcode: sendLink}, "Verify Email Address")
                         result.private = private.result
                         res.json(result)
                     } else {
@@ -431,18 +436,19 @@ app.post("/api/sendverificationcode", async (req, res) => {
             if(result.verified == true) {
                 res.json({code: 401, errors: [2, "Account is already verified."]})
             } else {
+                let sendLink = "https://sellsource-backend.onrender.com/api/v?vcode="+result.verificationCode
                 if(result.verificationCode == undefined) {
-                    let newCode = randomId(6)
+                    let newCode = randomId(16)
                     newCode = newCode.result.toUpperCase()
                     let update = await dbUpdateSet("users", {private: private}, {verificationCode: newCode, verified: false})
                     if(update.code == 200) {
-                        sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: newCode}, "Verify Email Address")
+                        sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: sendLink, hreflink: sendLink}, "Verify Email Address")
                         res.json({code: 200})
                     } else {
                         res.json({code: 500, err: update.err})
                     }
                 } else {
-                    sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: result.verificationCode}, "Verify Email Address")
+                    sendEmail("verification2.html", result.email, {firstName: result.firstName, lastName: result.lastName, vcode: sendLink, hreflink: sendLink}, "Verify Email Address")
                     res.json({code: 200})
                 }   
             }
@@ -454,31 +460,26 @@ app.post("/api/sendverificationcode", async (req, res) => {
     }
 })
 
-/* Post route that takes in an account private and its verification code to verify the account. */
-app.post("/api/verifyemail", async (req, res) => {
+/* Get route that takes in a verification code. */
+app.get("/api/v", async (req, res) => {
     try {
-        const private = req.body.private
-        const code = req.body.verificationCode
+        const code = req.query.vcode
 
-        let result = await dbGet("users", {private: private})
+        let result = await dbGet("users", {verificationCode: code})
         result = result.result
         if(result) { 
             if(result.verified == true) {
                 res.json({code: 401, errors: [2, "Account is already verified."]})
             } else {
-                if(code == result.verificationCode) {
-                    let update = await dbUpdateSet("users", {private: private}, {verified: true})
-                    if(update.code == 200) {
-                        res.json({code: 200})
-                    } else {
-                        res.json({code: 500, err: update.err})
-                    }
+                let update = await dbUpdateSet("users", {verificationCode: code}, {verified: true})
+                if(update.code == 200) {
+                    res.redirect("https://sellsource.co/")
                 } else {
-                    res.json({code: 401, errors: [3, "Invalid verification code."]})
-                } 
+                    res.json({code: 500, err: update.err})
+                }
             }
         } else {
-            res.json({code: 401, errors: [1, "Unknown private."]})
+            res.json({code: 401, errors: [1, "Invalid verification code."]})
         }
     } catch(err) {
         res.json({code: 500, err: err})
@@ -710,6 +711,27 @@ app.post("/api/newpassword", async (req, res) => {
     }
 })
 
+/* Function to validate files when creating sources. */
+async function processFileFormation(array, errors, author) {
+    for(let x = 0; x < array.length; x++) {
+        if(Array.isArray(array[x])) {
+            await processFileFormation(array[x], errors, author)
+        } else if(typeof array[x] == "number") {
+            let chosenFile = await dbGet("files", {fileId: array[x]})
+            chosenFile = chosenFile.result
+            if(chosenFile) {
+                if(chosenFile.author != author) {
+                    errors.push([16, "You don't have access to this file."])
+                }
+            } else {
+                errors.push([17, "Unknown fileId."])
+            }
+        } else {
+            errors.push([15, "Invalid file array."])
+        }
+    }
+}
+
 /* Post route for created source. */
 app.post("/api/newsource", async (req, res) => {
     try {
@@ -724,6 +746,7 @@ app.post("/api/newsource", async (req, res) => {
         const description = req.body.description
         const getSource = await getNewSourceId()
         const sourceId = getSource.result
+        let files = req.body.files
         let author = -1
         let errors = []
 
@@ -788,6 +811,15 @@ app.post("/api/newsource", async (req, res) => {
             author = user.result.userId
         }
 
+        if(files == "" || files == null) {
+            errors.push([14, "Files are required."])
+        } else {
+            files = files.replace(/'/g, '"')
+            files = JSON.parse(files)
+
+            await processFileFormation(files, errors, author)
+        }
+
         if(gallery == "" || gallery == null) {
             gallery = []
         } else {
@@ -808,7 +840,8 @@ app.post("/api/newsource", async (req, res) => {
                 price: price,
                 gallery: gallery,
                 description: description,
-                tags: tags
+                tags: tags,
+                files: files
             })
 
             if(result.code == 200) {
@@ -821,6 +854,77 @@ app.post("/api/newsource", async (req, res) => {
     } catch(err) {
         console.log(err)
         res.json({code: 500, err: err})
+    }
+})
+
+/* Interval that saves the first file in the queue to MongoDB. */
+let uploadInterval = setInterval(async (e) => {
+    if(fileUploadQueue.length > 0) {
+        try {
+            let toUpload = fileUploadQueue[0]
+            fileUploadQueue.shift()
+            await dbCreate("files", {
+                name: toUpload.name,
+                data: toUpload.data,
+                fileId: toUpload.fileId,
+                size: toUpload.size,
+                author: toUpload.author
+            })
+        } catch(err) {
+            console.error(err)
+        }
+    }
+}, 1000)
+
+let fileUploadQueue = []
+
+/* Post route to save uploaded code. */
+app.post('/uploadcode', upload.array('files'), async (req, res) => {
+    try {
+        const uploadedFiles = req.files
+        const private = req.body.private
+        let uploadResults = []
+        let user = await dbGet("users", { private })
+        user = user.result
+
+        await client.connect()
+        const db = client.db("main")
+
+        if (user) {
+            if(user.verified == true) {
+                let offset = 0
+                let indexFileId = (await db.collection("files").countDocuments()) + 1 + fileUploadQueue.length
+                for (const file of uploadedFiles) {
+                    if (file.size < 1.5e+7) {
+                        const { originalname, buffer } = file
+
+                        fileUploadQueue.push({
+                            name: originalname,
+                            data: buffer,
+                            fileId: indexFileId + offset,
+                            size: file.size,
+                            author: user.userId
+                        })
+
+                        uploadResults.push({ name: originalname, fileId: indexFileId + offset })
+                        offset += 1
+                    } else {
+                        uploadResults.push({ name: file.originalname, err: "File too large." })
+                    }
+                }
+
+                await client.close()
+
+                res.json({ code: 200, result: uploadResults })
+            } else {
+                res.json({code: 401, err: "Account not verified."})
+            }
+        } else {
+            res.json({ code: 401, err: "Unknown private." })
+        }
+    } catch (error) {
+        console.error(error)
+        res.json({ code: 500, err: error })
     }
 })
 
@@ -855,6 +959,15 @@ app.get("/images/:name", (req, res) => {
 app.get("/email/:name", (req, res) => {
     try {
         res.sendFile(__dirname+`/emails/${req.params.name}`)
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Get route that loads the page for testing out file hosting related processes. */
+app.get("/form", (req, res) => {
+    try {
+        res.sendFile(__dirname+`/other/form.html`)
     } catch(err) {
         res.json({code: 500, err: err})
     }
