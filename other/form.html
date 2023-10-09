@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" name="files" multiple>
+            <input type="submit" value="Upload Files">
+        </form>
+
+        <script>
+            document.getElementById("uploadForm").addEventListener("submit", function (e) {
+                e.preventDefault()
+            
+                const formData = new FormData(this)
+                formData.append("private", "")
+            
+                fetch("/uploadcode", {
+                    method: "POST",
+                    body: formData
+                })
+                    .then(response => response.json())
+                    .catch(error => console.error("Error:", error))
+            })
+        </script>
+    </body>
+</html>
