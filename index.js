@@ -411,7 +411,7 @@ app.post("/api/signup", async (req, res) => {
                     })
         
                     if(result.code == 200) {
-                        let sendLink = "https://sellsource-backend.onrender.com/api/v?vcode="+verificationCode.result.toUpperCase()
+                        let sendLink = "https://sellsource-backend.onrender.com/api/v?code="+verificationCode.result.toUpperCase()
                         sendEmail("verification.html", email, {hreflink: sendLink, firstName: firstName, lastName: lastName, vcode: sendLink}, "Verify Email Address")
                         result.private = private.result
                         res.json(result)
@@ -436,7 +436,7 @@ app.post("/api/sendverificationcode", async (req, res) => {
             if(result.verified == true) {
                 res.json({code: 401, errors: [2, "Account is already verified."]})
             } else {
-                let sendLink = "https://sellsource-backend.onrender.com/api/v?vcode="+result.verificationCode
+                let sendLink = "https://sellsource-backend.onrender.com/api/v?code="+result.verificationCode
                 if(result.verificationCode == undefined) {
                     let newCode = randomId(16)
                     newCode = newCode.result.toUpperCase()
@@ -463,7 +463,7 @@ app.post("/api/sendverificationcode", async (req, res) => {
 /* Get route that takes in a verification code. */
 app.get("/api/v", async (req, res) => {
     try {
-        const code = req.query.vcode
+        const code = req.query.code
 
         let result = await dbGet("users", {verificationCode: code})
         result = result.result
