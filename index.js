@@ -5,6 +5,7 @@ const { MongoClient, ServerApiVersion } = require('mongodb')
 const cors = require("cors")
 const nodemailer = require('nodemailer')
 const fs = require("fs")
+const { error } = require("console")
 const app = express()
 
 app.use(express.json())
@@ -555,6 +556,50 @@ app.post("/api/getsource", async (req, res) => {
             }})
         } else {
             res.json({code: 401, errors: [1, "Unknown sourceId."]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Post route to return multiple sources for display. */
+app.post("/api/getsources", async (req, res) => {
+    try {
+        let quantity = req.body.quantity
+        let type = req.body.type
+        let errors = []
+
+        let validQuanity = [1, 2, 3, 4, 5, 10, 25, 50, 100]
+        if(validQuanity.indexOf(quantity) == -1) {
+            errors.push([1, "Invalid quantity amount."])
+        }
+
+        let validTypes = ["random"]
+        if(validTypes.indexOf(type) == -1) {
+            errors.push([2, "Unsupported search type."])
+        }
+
+        if(errors.length > 0) {
+            res.json({code: 400, errors: errors})
+        } else {
+            if(type == "random") {
+                await client.connect()
+                const db = client.db("main")
+                const randomDocuments = await db.collection("sources").aggregate([{ $sample: { size: quantity } }]).toArray()
+
+                let final = []
+                for(let i = 0; i < randomDocuments.length; i++) {
+                    final.push({
+                        name: randomDocuments[i].name,
+                        thumbnail: randomDocuments[i].thumbnail,
+                        author: randomDocuments[i].author,
+                        category: randomDocuments[i].category,
+                        price: randomDocuments[i].price
+                    })
+                }
+
+                res.json({ code: 200, result: final })
+            }
         }
     } catch(err) {
         res.json({code: 500, err: err})
