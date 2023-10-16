@@ -125,6 +125,20 @@ const dbUpdateSet = async (collection, query, data) => {
     }
 }
 
+/* Function to replace values in a MongoDB document. */
+const dbUpdateReplace = async (collection, query, data, unset) => {
+    try {
+        await client.connect()
+	    const db = client.db("main")
+        await db.collection(collection).updateOne(query, { $set: data, $unset: unset })
+        return {code: 200}
+    } catch(err) {
+        return {code: 500, err: err}
+    } finally {
+        client.close()
+    }
+}
+
 /* Function to get update data from MongoDB by incrementing a value. Takes in collection name, search query and new data. */
 const dbUpdateInc = async (collection, query, data) => {
     try {
@@ -159,7 +173,12 @@ const getNewUserId = async (email) => {
         await client.connect()
 	    const db = client.db("main")
         const resultCursor = await db.collection("waitlist").find().sort({userId: -1})
-        const result = await resultCursor.toArray()
+        const result = []
+
+        while (await resultCursor.hasNext()) {
+            const document = await resultCursor.next()
+            result.push(document)
+        }
 
         let highestUserId = 0
         if(result.length > 0) {
@@ -176,7 +195,12 @@ const getNewUserId = async (email) => {
 
             if(possibleNewId == -1) {
                 const usersResultCursor = await db.collection("users").find().sort({userId: -1}).limit(1)
-                const userResult = await usersResultCursor.toArray()
+                const userResult = []
+
+                while (await usersResultCursor.hasNext()) {
+                    const document = await usersResultCursor.next()
+                    userResult.push(document)
+                }
 
                 let usersHighestUserId = 0
                 if(userResult.length > 0) {
@@ -541,6 +565,35 @@ app.post("/api/updatepassword", async (req, res) => {
                     }
                 } 
             })
+        } else {
+            res.json({code: 401, errors: [[1, "Unknown private."]]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Post to delete a user's account. */
+app.post("/api/deleteaccount", async (req, res) => {
+    try {
+        const private = req.body.private
+
+        let user = await dbGet("users", {private: private})
+        user = user.result
+
+        if(user) {
+            const keys = Object.keys(user)
+            const keep = ["_id", "userId"]
+            let toUnset = {}
+
+            for(let i = 0; i < keys.length; i++) {
+                if(keep.indexOf(keys[i]) == -1) {
+                    toUnset[keys[i]] = 1
+                }
+            }
+
+            let update = await dbUpdateReplace("users", {private: private}, {status: "Deleted"}, toUnset)
+            res.json(update)
         } else {
             res.json({code: 401, errors: [[1, "Unknown private."]]})
         }
