@@ -1,11 +1,10 @@
 const express = require("express")
 const bcrypt = require('bcrypt')
 const multer = require('multer')
-const { MongoClient, ServerApiVersion } = require('mongodb')
+const { MongoClient } = require('mongodb')
 const cors = require("cors")
 const nodemailer = require('nodemailer')
 const fs = require("fs")
-const { error } = require("console")
 const app = express()
 
 app.use(express.json())
@@ -512,27 +511,197 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
+/* Post route to update user profile information. */
+app.post("/api/setprofile", async (req, res) => {
+    try {
+        const private = req.body.private
+        const username = req.body.username
+        const email = req.body.email
+        const options = ["avatar", "displayname", "bio", "website", "github", "linkedin", "twitter"]
+        let changes = []
+        let errors = []
+
+        let user = await dbGet("users", {private: private})
+        user = user.result
+
+        if(user) {
+            if(username) {
+                let others = await dbGet("users", {username: username})
+                if(others.result) {
+                    errors.push([2, "Username already taken."])
+                } else {
+                    changes.push(username)
+                }
+            } else {
+                if(user.username) {
+                    changes.push(user.username)
+                } else {
+                    changes.push("")
+                }
+            }
+
+            for(let i = 0; i < options.length; i++) {
+                if(req.body[options[i]]) {
+                    changes.push(req.body[options[i]])
+                } else {
+                    if(user[options[i]]) {
+                        changes.push(user[options[i]])
+                    } else {
+                        changes.push("")
+                    }
+                }
+            }
+
+            if(email) {
+                if(validateEmail(email).result == null) {
+                    errors.push([3, "Invalid email format."])
+                } else {
+                    let others = await dbGet("users", {email: email})
+                    if(others.result) {
+                        errors.push([4, "Email arleady taken."])
+                    } else {
+                        changes.push(email)
+                        changes.push(false)
+                    }
+                }
+            } else {
+                changes.push(user.email)
+                changes.push(user.verified)
+            }
+
+            if(errors.length > 0) {
+                res.json({code: 400, errors: errors})
+            } else {
+                const update = await dbUpdateSet("users", {private: private}, {
+                    username: changes[0],
+                    email: changes[8],
+                    verified: changes[9],
+                    avatar: changes[1],
+                    displayname: changes[2],
+                    bio: changes[3],
+                    website: changes[4],
+                    github: changes[5],
+                    linkedin: changes[6],
+                    twitter: changes[7]
+                })
+                if(update.code == 200) {
+                    res.json({code: 200})
+                } else {
+                    res.json(update)
+                }
+            }
+        } else {
+            res.json({code: 401, errors: [[1, "Unknown private."]]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to get user account information from their private key. */
 app.post("/api/getaccount", async (req, res) => {
     try {
         let private = req.body.private
         let result = await dbGet("users", {private: private})
         result = result.result
+        let keys = ["bio", "github", "linkedin", "twitter", "website"]
+        let values = []
+        let changes = false
+        let displayname = ""
+        let username = ""
+        let avatar = ""
+
         if(result) {
+            for(let i = 0; i < keys.length; i++) {
+                if(result[keys[i]]) {
+                    values.push(result[keys[i]])
+                } else {
+                    values.push("")
+                }
+            }
+
+            if(result.displayname && result.displayname != "") {
+                displayname = result.displayname
+            } else {
+                changes = true
+                displayname = `${result.firstName} ${result.lastName}`
+            }
+
+            if(result.username && result.username != "") {
+                username = result.username
+            } else {
+                changes = true
+                username = `${result.firstName}-${result.lastName}-${randomId(6).result}`
+            }
+
+            if(result.avatar && result.avatar != "") {
+                avatar = result.avatar
+            } else {
+                changes = true
+                avatar = `https://sellsource-backend.onrender.com/api/avatars/${Math.floor(Math.random() * 3)}`
+            }
+
             res.json({code: 200, result: {
                 firstName: result.firstName,
                 lastName: result.lastName,
                 email: result.email,
                 role: result.role,
                 userId: result.userId,
-                phone: result.phone
+                phone: result.phone,
+                verified: result.verified,
+                avatar: avatar,
+                bio: values[0],
+                displayname: displayname,
+                github: values[1],
+                linkedin: values[2],
+                twitter: values[3],
+                username: username,
+                website: values[4]
             }})
+
+            if(changes) {
+                await dbUpdateSet("users", {private: private}, {
+                    username: username,
+                    displayname: displayname,
+                    avatar: avatar
+                })
+            }
         } else {
             res.json({code: 401, errors: [1, "Unknown private."]})
         }
     } catch(err) {
         res.json({code: 500, err: err})
     }
+})
+
+/* Get route to get the default avatar images. */
+app.get("/api/avatars/:imageid", (req, res) => {
+    try {
+        const imageid = req.params.imageid
+        if(imageid) {
+            let chosen = ""
+            if(imageid == 0) {
+                chosen = "blue.png"
+            } else if(imageid == 1) {
+                chosen = "red.png"
+            } else if(imageid == 2) {
+                chosen = "purple.png"
+            } else if(imageid == 3) {
+                chosen = "green.png"
+            }
+
+            if(chosen == "") {
+                res.json({code: 400, err: [[2, "Invalid imageid."]]})
+            } else {
+                res.sendFile(__dirname+"/images/"+chosen)
+            }
+        } else {
+            res.json({code: 400, err: [[1, "Imageid required."]]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+    
 })
 
 /* Post route to return a listings details from its sourceid. */
