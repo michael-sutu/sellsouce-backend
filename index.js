@@ -511,6 +511,44 @@ app.post("/api/login", async (req, res) => {
     }
 })
 
+/* Post route to update a user's password. */
+app.post("/api/updatepassword", async (req, res) => {
+    try {
+        const private = req.body.private
+        const password = req.body.password
+        const newpassword = req.body.newpassword
+
+        let user = await dbGet("users", {private: private})
+        user = user.result
+        if(user) {
+            bcrypt.compare(password, user.password, (err, pass) => {
+                if (err) {
+                    res.json({code: 500, err: err})
+                } else {
+                    if (pass) {
+                        bcrypt.genSalt(10, async (err, salt) => {
+                            bcrypt.hash(newpassword, salt, async function(err, hash) {
+                                const result = await dbUpdateSet("users", {private: private}, {
+                                    password: hash
+                                })
+                    
+                                res.json(result)
+                            })
+                        })
+                        
+                    } else {
+                        res.json({code: 401, errors: [[2, "Invalid password."]]})
+                    }
+                } 
+            })
+        } else {
+            res.json({code: 401, errors: [[1, "Unknown private."]]})
+        }
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to update user profile information. */
 app.post("/api/setprofile", async (req, res) => {
     try {
