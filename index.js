@@ -366,18 +366,6 @@ app.post("/api/getjoined", async (req, res) => {
     }
 })
 
-function test() {
-    bcrypt.genSalt(10, async (err, salt) => {
-        console.log(salt)
-        bcrypt.hash("password", salt, async function(err, hash) {
-            console.log(hash)
-        })
-    })
-}
-
-test()
-test()
-
 /* Post route sign up a new user account. */
 app.post("/api/signup", async (req, res) => {
     try {
@@ -528,7 +516,6 @@ app.post("/api/login", async (req, res) => {
         let result = await dbGet("users", {email: req.body.email})
         result = result.result
         if(result) {
-            console.log(req.body.password)
             bcrypt.compare(req.body.password, result.password, (err, pass) => {
                 if (err) {
                     res.json({code: 500, err: err})
