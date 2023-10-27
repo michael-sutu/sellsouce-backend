@@ -403,7 +403,7 @@ app.post("/api/signup", async (req, res) => {
             }
 
             const getEmail = await dbGet("users", {"email": email})
-            if(getEmail.result != null) {
+            if(getEmail.result != null && getEmail.result.status != "Deleted") {
                 errors.push([5, "Email taken."])
             }
         }
@@ -456,7 +456,7 @@ app.post("/api/sendverificationcode", async (req, res) => {
         const private = req.body.private
         let result = await dbGet("users", {private: private})
         result = result.result
-        if(result) { 
+        if(result && result.status != "Deleted") { 
             if(result.verified == true) {
                 res.json({code: 401, errors: [2, "Account is already verified."]})
             } else {
@@ -491,7 +491,7 @@ app.get("/api/v", async (req, res) => {
 
         let result = await dbGet("users", {verificationCode: code})
         result = result.result
-        if(result) { 
+        if(result && result.status != "Deleted") { 
             if(result.verified == true) {
                 res.json({code: 401, errors: [2, "Account is already verified."]})
             } else {
@@ -515,7 +515,7 @@ app.post("/api/login", async (req, res) => {
     try {
         let result = await dbGet("users", {email: req.body.email})
         result = result.result
-        if(result) {
+        if(result && result.status != "Deleted") {
             bcrypt.compare(req.body.password, result.password, (err, pass) => {
                 if (err) {
                     res.json({code: 500, err: err})
@@ -544,7 +544,7 @@ app.post("/api/updatepassword", async (req, res) => {
 
         let user = await dbGet("users", {private: private})
         user = user.result
-        if(user) {
+        if(user && user.status != "Deleted") {
             bcrypt.compare(password, user.password, (err, pass) => {
                 if (err) {
                     res.json({code: 500, err: err})
@@ -581,7 +581,7 @@ app.post("/api/deleteaccount", async (req, res) => {
         let user = await dbGet("users", {private: private})
         user = user.result
 
-        if(user) {
+        if(user && user.status != "Deleted") {
             const keys = Object.keys(user)
             const keep = ["_id", "userId"]
             let toUnset = {}
@@ -615,10 +615,10 @@ app.post("/api/setprofile", async (req, res) => {
         let user = await dbGet("users", {private: private})
         user = user.result
 
-        if(user) {
+        if(user && user.status != "Deleted") {
             if(username) {
                 let others = await dbGet("users", {username: username})
-                if(others.result) {
+                if(others.result && others.result.status != "Deleted") {
                     errors.push([2, "Username already taken."])
                 } else {
                     changes.push(username)
@@ -648,7 +648,7 @@ app.post("/api/setprofile", async (req, res) => {
                     errors.push([3, "Invalid email format."])
                 } else {
                     let others = await dbGet("users", {email: email})
-                    if(others.result) {
+                    if(others.result && others.result.status != "Deleted") {
                         errors.push([4, "Email arleady taken."])
                     } else {
                         changes.push(email)
@@ -702,7 +702,7 @@ app.post("/api/getaccount", async (req, res) => {
         let username = ""
         let avatar = ""
 
-        if(result) {
+        if(result && result.status != "Deleted") {
             for(let i = 0; i < keys.length; i++) {
                 if(result[keys[i]]) {
                     values.push(result[keys[i]])
@@ -886,7 +886,7 @@ app.post("/api/resetcode", async (req, res) => {
         const email = req.body.email
         let result = await dbGet("users", {email: email})
         result = result.result
-        if(result) {
+        if(result && result.status != "Deleted") {
             let resetCode = randomId(6)
             resetCode = resetCode.result.toUpperCase()
             let secretCode = randomId(10)
@@ -1037,6 +1037,165 @@ async function processFileFormation(array, errors, author) {
     }
 }
 
+/* Post route for updating sources. */
+app.post("/api/updatesource", async (req, res) => {
+    try {
+        const private = req.body.private
+        const sourceId = req.body.sourceId
+        const thumbnail = req.body.thumbnail
+        const visibility = req.body.visibility
+        let tags = req.body.tags
+        let price = req.body.price
+        let gallery = req.body.gallery
+        let files = req.body.files
+        const options = ["name", "category", "description"]
+        let changes = []
+        let errors = []
+
+        let user = await dbGet("users", {private: private})
+        user = user.result
+
+        if(user && user.status != "Deleted") {
+            let source = await dbGet("sources", {sourceId: sourceId})
+            source = source.result
+
+            if(source && source.author == user.userId) {
+                for(let i = 0; i < options.length; i++) {
+                    if(req.body[options[i]]) {
+                        if(req.body[options[i]] != "" && req.body[options[i]] != null) {
+                            changes.push(req.body[options[i]])
+                        } else {
+                            errors.push(4 + i, `Invalid ${options[i]} value.`)
+                        }
+                    } else {
+                        changes.push(source[options[i]])
+                    }
+                }
+
+                if(thumbnail) {
+                    if(thumbnail == "" || thumbnail == null) {
+                        errors.push([7, "Listing thumbnail is required."])
+                    } else {
+                        let validImage = await validateImage(thumbnail)
+                        if(validImage.result == false) {
+                            errors.push([8, "Invalid thumbnail provided."])
+                        }  else {
+                            changes.push(thumbnail)
+                        }
+                    }
+                } else {
+                    changes.push(source.thumbnail)
+                }
+
+                if(visibility) {
+                    if(visibility == "" || visibility == null) {
+                        errors.push([9, "Listing visibility is required."])
+                    } else {
+                        if(visibility != "open" && visibility != "closed") {
+                            errors.push([10, "Invalid visibility provided. Must be 'open' or 'closed'."])
+                        } else {
+                            changes.push(visibility)
+                        }
+                    }
+                } else {
+                    changes.push(source.visibility)
+                }
+
+                if(tags) {
+                    if(tags == "" || tags == null) {
+                        errors.push([11, "Listing tags are required."])
+                    } else {
+                        tags = tags.replace(/'/g, '"')
+                        tags = JSON.parse(tags)
+            
+                        if(tags.length > 20) {
+                            errors.push([12, "Can't have more then 20 tags."])
+                        } else {
+                            changes.push(tags)
+                        }
+                    }
+                } else {
+                    changes.push(source.tags)
+                }
+
+                if(price) {
+                    if(price == "" || price == null) {
+                        errors.push([13, "Listing price is required."])
+                    } else {
+                        let validNum = validateNumber(price)
+                        if(validNum.result) {
+                            price = parseInt(price)
+                            changes.push(price)
+                        } else {
+                            errors.push([14, "Listing price must be a valid integer."])
+                        }
+                    }
+                } else {
+                    changes.push(source.price)
+                }
+
+                if(gallery) {
+                    if(gallery == "" || gallery == null) {
+                        gallery = []
+                    } else {
+                        gallery = gallery.replace(/'/g, '"')
+                        gallery = JSON.parse(gallery)
+                    }
+
+                    changes.push(gallery)
+                } else {
+                    changes.push(source.gallery)
+                }
+
+                if(files) {
+                    if(files == "" || files == null) {
+                        errors.push([15, "Files are required."])
+                    } else {
+                        files = files.replace(/'/g, '"')
+                        files = JSON.parse(files)
+            
+                        await processFileFormation(files, errors, source.author)
+                        changes.push(files)
+                    }
+                } else {
+                    changes.push(source.files)
+                }
+
+                if(errors.length > 0) {
+                    res.json({code: 400, errors: errors})
+                } else {
+                    const update = await dbUpdateSet("sources", {sourceId: sourceId}, {
+                        name: changes[0],
+                        category: changes[1],
+                        description: changes[2],
+                        thumbnail: changes[3],
+                        visibility: changes[4],
+                        tags: changes[5],
+                        price: changes[6],
+                        gallery: changes[7],
+                        files: changes[8]
+                    })
+
+                    if(update.code == 200) {
+                        res.json({code: 200})
+                    } else {
+                        res.json(update)
+                    }
+                }
+            } else if(source && source.author != user.userId) {
+                res.json({code: 401, errors: [[3, "This account is not the author of the source."]]})
+            } else {
+                res.json({code: 401, errors: [[2, "Unknown sourceId."]]})
+            }
+        } else {
+            res.json({code: 401, errors: [[1, "Unknown private."]]})
+        }
+    } catch(err) {
+        console.log(err)
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route for created source. */
 app.post("/api/newsource", async (req, res) => {
     try {
@@ -1107,10 +1266,10 @@ app.post("/api/newsource", async (req, res) => {
         }
 
         const user = await dbGet("users", {private: private})
-        if(user.result == null) {
+        if(user.result == null || user.result.status == "Deleted") {
             errors.push([11, "Unknown user private key."])
         } else {
-            if(user.result.verified !== true) {
+            if(user.result.verified != true) {
                 errors.push([12, "Account not verified."])
             }
             author = user.result.userId
@@ -1195,7 +1354,7 @@ app.post('/uploadcode', upload.array('files'), async (req, res) => {
         await client.connect()
         const db = client.db("main")
 
-        if (user) {
+        if(user && user.status != "Deleted") {
             if(user.verified == true) {
                 let offset = 0
                 let indexFileId = (await db.collection("files").countDocuments()) + 1 + fileUploadQueue.length
