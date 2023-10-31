@@ -822,6 +822,41 @@ app.post("/api/getsource", async (req, res) => {
     }
 })
 
+/* Post route to purchase sources. */
+app.post("/api/purchase", async (req, res) => {
+    try {
+        const private = req.body.private
+        const sources = req.body.sources
+        let user = await dbGet("users", {private: private})
+        user = user.result
+        if(user && user.status != "Deleted") {
+            let newPurchases = []
+            if(user.purchases) {
+                newPurchases = user.purchases
+            }
+
+            if(sources) {
+                for(let i = 0; i < sources.length; i++) {
+                    let chosenSources = await dbGet("sources", {sourceId: sources[i]})
+                    if(chosenSources.result && newPurchases.indexOf(sources[i]) == -1) {
+                        newPurchases.push(sources[i])
+                    }
+                }
+    
+                const result = await dbUpdateSet("users", {private: private}, {purchases: newPurchases})
+                res.json(result)
+            } else {
+                res.json({code: 401, errors: [2, "Sources required."]})
+            }
+        } else {
+            res.json({code: 401, errors: [1, "Unknown private."]})
+        }
+    } catch(err) {
+        console.log(err)
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to return multiple sources for display. */
 app.post("/api/getsources", async (req, res) => {
     try {
