@@ -1378,12 +1378,12 @@ let uploadInterval = setInterval(async (e) => {
 let fileUploadQueue = []
 
 /* Post route to save uploaded code. */
-app.post('/uploadcode', upload.array('files'), async (req, res) => {
+app.post('/api/uploadcode', upload.array('files'), async (req, res) => {
     try {
         const uploadedFiles = req.files
         const private = req.body.private
         let uploadResults = []
-        let user = await dbGet("users", { private })
+        let user = await dbGet("users", { private: private })
         user = user.result
 
         await client.connect()
@@ -1423,6 +1423,53 @@ app.post('/uploadcode', upload.array('files'), async (req, res) => {
         }
     } catch (error) {
         console.error(error)
+        res.json({ code: 500, err: error })
+    }
+})
+
+/* Post route to save uploaded code. */
+app.post('/api/newreferral', async (req, res) => {
+    try {
+        const code = req.body.code.toLowerCase()
+        const private = req.body.private
+        let user = await dbGet("users", { private: private })
+        user = user.result
+
+        if(user && user.status != "Deleted") {
+            if(user.verified == true) {
+                if(code == "" || code == null) {
+                    res.json({code: 400, err: "New referral code is required."})
+                } else {
+                    let exists = await dbGet("referrals", { author: user.userId })
+                    exists = exists.result
+
+                    if(exists) {
+                        res.json({code: 400, err: "User already has a referral code."})
+                    } else {
+                        let used = await dbGet("referrals", { code: code })
+                        used = used.result
+
+                        if(used) {
+                            res.json({code: 400, err: "Referral code taken."})
+                        } else {
+                            let result = await dbCreate("referrals", {
+                                author: user.userId,
+                                code: code,
+                                uses: 0,
+                                earnings: 0
+                            })
+
+                            res.json(result)
+                        }
+                    }
+                }
+            } else {
+                res.json({code: 401, err: "Account not verified."})
+            }
+        } else {
+            res.json({ code: 401, err: "Unknown private." })
+        }
+    } catch (error) {
         res.json({ code: 500, err: error })
     }
 })
