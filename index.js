@@ -827,6 +827,7 @@ app.post("/api/purchase", async (req, res) => {
     try {
         const private = req.body.private
         const sources = req.body.sources
+        const code = req.body.code
         let user = await dbGet("users", {private: private})
         user = user.result
         if(user && user.status != "Deleted") {
@@ -836,15 +837,47 @@ app.post("/api/purchase", async (req, res) => {
             }
 
             if(sources) {
+                let total = 0
                 for(let i = 0; i < sources.length; i++) {
                     let chosenSources = await dbGet("sources", {sourceId: sources[i]})
                     if(chosenSources.result && newPurchases.indexOf(sources[i]) == -1) {
+                        console.log("adding")
+                        total += chosenSources.result.price
                         newPurchases.push(sources[i])
                     }
                 }
+
+                let pass = true
+                if(code) {
+                    let codeData = await dbGet("referrals", { code: code })
+                    codeData = codeData.result
+
+                    if(codeData) {
+                        if(user.usedCode) {
+                            pass = false
+                            res.json({code: 400, errors: [4, "User has already used a referral code."]})
+                        } else {
+                            total = (total * 0.9).toFixed(2)
+                            await dbUpdateSet("users", { private: private }, {
+                                usedCode: code
+                            })
+
+                            await dbUpdateSet("referrals", { code: code }, {
+                                uses: codeData.uses + 1,
+                                earnings: parseFloat(codeData.earnings) + parseFloat((total * 0.05).toFixed(2))
+                            })
+                        }
+                    } else {
+                        pass = false
+                        res.json({code: 400, errors: [3, "Unknown referral code."]})
+                    }
+                }
     
-                const result = await dbUpdateSet("users", {private: private}, {purchases: newPurchases})
-                res.json(result)
+                if(pass) {
+                    const result = await dbUpdateSet("users", {private: private}, {purchases: newPurchases})
+                    result["total"] = total
+                    res.json(result)
+                }
             } else {
                 res.json({code: 401, errors: [2, "Sources required."]})
             }
@@ -1427,7 +1460,7 @@ app.post('/api/uploadcode', upload.array('files'), async (req, res) => {
     }
 })
 
-/* Post route to save uploaded code. */
+/* Post route to create a new referral code. */
 app.post('/api/newreferral', async (req, res) => {
     try {
         const code = req.body.code.toLowerCase()
@@ -1465,6 +1498,34 @@ app.post('/api/newreferral', async (req, res) => {
                 }
             } else {
                 res.json({code: 401, err: "Account not verified."})
+            }
+        } else {
+            res.json({ code: 401, err: "Unknown private." })
+        }
+    } catch (error) {
+        res.json({ code: 500, err: error })
+    }
+})
+
+/* Post route to get stats related to the useage of a referral code. */
+app.post('/api/getreferral', async (req, res) => {
+    try {
+        const private = req.body.private
+        let user = await dbGet("users", { private: private })
+        user = user.result
+
+        if(user && user.status != "Deleted") {
+            let codeData = await dbGet("referrals", { author: user.userId })
+            codeData = codeData.result
+
+            if(codeData) {
+                res.json({ code: 200, result: {
+                    code: codeData.code,
+                    uses: codeData.uses,
+                    earnings: codeData.earnings
+                }})
+            } else {
+                res.json({ code: 400, err: "User does not have a referral code." })
             }
         } else {
             res.json({ code: 401, err: "Unknown private." })
