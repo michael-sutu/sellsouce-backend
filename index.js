@@ -5,6 +5,8 @@ const { MongoClient } = require('mongodb')
 const cors = require("cors")
 const nodemailer = require('nodemailer')
 const fs = require("fs")
+const archiver = require('archiver')
+const path = require('path')
 const app = express()
 
 app.use(express.json())
@@ -1460,6 +1462,96 @@ app.post('/api/uploadcode', upload.array('files'), async (req, res) => {
     }
 })
 
+/* Get route to download already uploaded code. */
+app.get('/api/downloadcode', async (req, res) => {
+    try {
+        const private = req.query.private
+        const sourceId = parseInt(req.query.sourceId)
+
+        let source = await dbGet("sources", {sourceId: sourceId})
+        source = source.result
+        let user = await dbGet("users", { private: private })
+        user = user.result
+
+        if(user && user.status != "Deleted") {
+            if(source) {
+                if(user.purchases && user.purchases.includes(sourceId)) {
+                    const fileIds = source.files
+                    const name = source.name
+
+                    const tempDir = path.join(__dirname, 'temp')
+                    if (!fs.existsSync(tempDir)) {
+                        fs.mkdirSync(tempDir)
+                    }
+                    
+                    const filesToDownload = []
+                    
+                    for (let fileId of fileIds) {
+                        fileId = parseInt(fileId)
+                        let file = await dbGet("files", { fileId: fileId })
+                        file = file.result
+                    
+                        if (!file) {
+                            console.error(`File with ID ${fileId} not found`)
+                            continue
+                        }
+                    
+                        if (!file.data) {
+                            console.error(`File data for ID ${fileId} is missing or invalid.`)
+                            continue
+                        }
+                    
+                        const binaryData = Buffer.from(file.data.buffer, 'base64')
+                        const filePath = path.join(tempDir, file.name)
+                        fs.writeFileSync(filePath, binaryData)
+                    
+                        filesToDownload.push({
+                            path: filePath,
+                            name: file.name,
+                        })
+                    }
+                    
+                    const zipFileName = `${name}.zip`
+                    const zipFilePath = path.join(tempDir, zipFileName)
+                    const output = fs.createWriteStream(zipFilePath)
+                    const archive = archiver('zip', { zlib: { level: 9 } })
+                    
+                    output.on('close', () => {
+                      res.setHeader('Content-Type', 'application/zip')
+                      res.setHeader('Content-Disposition', `attachment; filename=${zipFileName}`)
+                    
+                      res.sendFile(zipFilePath, {}, (err) => {
+                        if (err) {
+                          console.error(err)
+                          res.status(500).send('Internal server error')
+                        }
+                    
+                        filesToDownload.forEach((file) => fs.unlinkSync(file.path))
+                        fs.unlinkSync(zipFilePath)
+                      })
+                    })
+                    archive.pipe(output)
+                    
+                    filesToDownload.forEach((file) => {
+                        archive.file(file.path, { name: file.name })
+                    })
+                    
+                    archive.finalize()
+                } else {
+                    res.json({ code: 401, err: "User does not have access to download these files." })
+                }
+            } else {
+                res.json({ code: 400, err: "Unknown sourceId." })
+            }
+        } else {
+            res.json({ code: 401, err: "Unknown private." })
+        }
+    } catch (error) {
+        console.error(error)
+        res.json({ code: 500, err: error })
+    }
+})
+
 /* Post route to create a new referral code. */
 app.post('/api/newreferral', async (req, res) => {
     try {
@@ -1575,6 +1667,15 @@ app.get("/email/:name", (req, res) => {
 app.get("/form", (req, res) => {
     try {
         res.sendFile(__dirname+`/other/form.html`)
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
+/* Get route that loads the page for testing out file downloading. */
+app.get("/download", (req, res) => {
+    try {
+        res.sendFile(__dirname+`/other/download.html`)
     } catch(err) {
         res.json({code: 500, err: err})
     }
