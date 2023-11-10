@@ -895,6 +895,7 @@ app.post("/api/purchase", async (req, res) => {
 /* Post route to return multiple sources for display. */
 app.post("/api/getsources", async (req, res) => {
     try {
+        const query = req.body.query
         let quantity = req.body.quantity
         let type = req.body.type
         let errors = []
@@ -904,7 +905,7 @@ app.post("/api/getsources", async (req, res) => {
             errors.push([1, "Invalid quantity amount."])
         }
 
-        let validTypes = ["random"]
+        let validTypes = ["random", "search"]
         if(validTypes.indexOf(type) == -1) {
             errors.push([2, "Unsupported search type."])
         }
@@ -929,6 +930,26 @@ app.post("/api/getsources", async (req, res) => {
                 }
 
                 res.json({ code: 200, result: final })
+            } else if(type == "search") {
+                if(query == "" || query == null) {
+                    res.json({code: 400, err: [3, "Query required for searches."]})
+                } else {
+                    await client.connect()
+                    const db = client.db('main')
+                    const collection = db.collection('sources')
+    
+                    const final = await collection
+                        .find({ $text: { $search: query } })
+                        .project({ score: { $meta: 'textScore' } })
+                        .sort({ score: { $meta: 'textScore' } })
+                        .limit(quantity)
+                        .toArray()
+            
+                    res.json({ code: 200, result: final })
+                  client.close()
+                }
+            } else {
+                res.json({code: 400, err: [2, "Unsupported search type."]})
             }
         }
     } catch(err) {
