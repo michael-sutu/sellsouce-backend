@@ -938,12 +938,23 @@ app.post("/api/getsources", async (req, res) => {
                     const db = client.db('main')
                     const collection = db.collection('sources')
     
-                    const final = await collection
+                    const results = await collection
                         .find({ $text: { $search: query } })
                         .project({ score: { $meta: 'textScore' } })
                         .sort({ score: { $meta: 'textScore' } })
                         .limit(quantity)
                         .toArray()
+
+                    let final = []
+                    for(let i = 0; i < results.length; i++) {
+                        final.push({
+                            name: results[i].name,
+                            thumbnail: results[i].thumbnail,
+                            author: results[i].author,
+                            category: results[i].category,
+                            price: results[i].price
+                        })
+                    }
             
                     res.json({ code: 200, result: final })
                   client.close()
