@@ -7,6 +7,7 @@ const nodemailer = require('nodemailer')
 const fs = require("fs")
 const archiver = require('archiver')
 const path = require('path')
+const { isBuffer } = require("util")
 const app = express()
 
 app.use(express.json())
@@ -604,6 +605,56 @@ app.post("/api/deleteaccount", async (req, res) => {
     }
 })
 
+/* Post route for moderators to remove listings. */
+app.post("/api/removelisting", async (req, res) => {
+    try {
+        const private = req.body.private
+        const sourceId = req.body.sourceId
+        const note = req.body.note
+
+        let user = await dbGet("users", {private: private})
+        user = user.result
+
+        if(note) {
+            if(user && user.status != "Deleted") {
+                if(private.split("-")[0] == "A") {
+                    let source = await dbGet("sources", {sourceId: sourceId})
+                    source = source.result
+    
+                    if(source && source.status != "Deleted") {
+                        const keys = Object.keys(source)
+                        const keep = ["_id", "sourceId"]
+                        let toUnset = {}
+    
+                        for(let i = 0; i < keys.length; i++) {
+                            if(keep.indexOf(keys[i]) == -1) {
+                                toUnset[keys[i]] = 1
+                            }
+                        }       
+    
+                        let sourceName = source.name
+                        let author = await dbGet("users", {userId: source.author})
+                        author = author.result
+                        let update = await dbUpdateReplace("sources", {sourceId: sourceId}, {status: "Deleted"}, toUnset)
+                        sendEmail("removed.html", author.email, {firstName: author.firstName, lastName: author.lastName, sourceName: sourceName, note: note}, "One of your listings has been removed.")
+                        res.json(update)
+                    } else {
+                        res.json({code: 400, errors: [[3, "This source either does not exist or has already been deleted."]]})
+                    }
+                } else {
+                    res.json({code: 401, errors: [[2, "User does not have moderation permission."]]})
+                }
+            } else {
+                res.json({code: 401, errors: [[1, "Unknown private."]]})
+            }
+        } else {
+            res.json({code: 400, errors: [[4, "Moderator note required."]]})
+        } 
+    } catch(err) {
+        res.json({code: 500, err: err})
+    }
+})
+
 /* Post route to update user profile information. */
 app.post("/api/setprofile", async (req, res) => {
     try {
@@ -734,6 +785,31 @@ app.post("/api/getaccount", async (req, res) => {
                 avatar = `https://sellsource-backend.onrender.com/api/avatars/${Math.floor(Math.random() * 3)}`
             }
 
+            let listings = []
+            if(result.listings) {
+                listings = result.listings
+            }
+
+            let sales = []
+            for(let i = 0; i < listings.length; i++) {
+                let currentListing = await dbGet("sources", {sourceId: listings[i]})
+                currentListing = currentListing.result
+                if(currentListing.purchases) {
+                    for(let x = 0; x < currentListing.purchases.length; x++) {
+                        sales.push({
+                            name: currentListing.purchases[x].name,
+                            email: currentListing.purchases[x].email,
+                            listing: currentListing.name
+                        })
+                    }
+                }
+            }
+
+            let purchases = []
+            if(result.purchases) {
+                purchases = result.purchases
+            }
+
             res.json({code: 200, result: {
                 firstName: result.firstName,
                 lastName: result.lastName,
@@ -749,7 +825,10 @@ app.post("/api/getaccount", async (req, res) => {
                 linkedin: values[2],
                 twitter: values[3],
                 username: username,
-                website: values[4]
+                website: values[4],
+                listings: listings,
+                purchases: purchases,
+                sales: sales
             }})
 
             if(changes) {
@@ -803,7 +882,7 @@ app.post("/api/getsource", async (req, res) => {
         let sourceId = req.body.sourceId
         let result = await dbGet("sources", {sourceId: sourceId})
         result = result.result
-        if(result) {
+        if(result && result.status != "Deleted") {
             res.json({code: 200, result: {
                 name: result.name,
                 thumbnail: result.thumbnail,
@@ -840,12 +919,13 @@ app.post("/api/purchase", async (req, res) => {
 
             if(sources) {
                 let total = 0
+                let addedSources = []
                 for(let i = 0; i < sources.length; i++) {
                     let chosenSources = await dbGet("sources", {sourceId: sources[i]})
-                    if(chosenSources.result && newPurchases.indexOf(sources[i]) == -1) {
-                        console.log("adding")
+                    if(chosenSources.result && chosenSources.result.status != "Deleted" && newPurchases.indexOf(sources[i]) == -1) {
                         total += chosenSources.result.price
                         newPurchases.push(sources[i])
+                        addedSources.push(sources[i])
                     }
                 }
 
@@ -877,6 +957,21 @@ app.post("/api/purchase", async (req, res) => {
     
                 if(pass) {
                     const result = await dbUpdateSet("users", {private: private}, {purchases: newPurchases})
+
+                    for(let i = 0; i < addedSources.length; i++) {
+                        let updatedPurchases = []
+                        let currentSource = await dbGet("sources", {sourceId: addedSources[i]})
+                        if(currentSource.result.purchases && currentSource.result.status != "Deleted") {
+                            updatedPurchases = currentSource.result.purchases
+                        }
+
+                        updatedPurchases.push({
+                            name: `${user.firstName} ${user.lastName}`,
+                            email: user.email
+                        })
+                        await dbUpdateSet("sources", {sourceId: addedSources[i]}, {purchases: updatedPurchases})
+                    }
+
                     result["total"] = total
                     res.json(result)
                 }
@@ -1161,7 +1256,7 @@ app.post("/api/updatesource", async (req, res) => {
             let source = await dbGet("sources", {sourceId: sourceId})
             source = source.result
 
-            if(source && source.author == user.userId) {
+            if(source && source.author == user.userId && source.status != "Deleted") {
                 for(let i = 0; i < options.length; i++) {
                     if(req.body[options[i]]) {
                         if(req.body[options[i]] != "" && req.body[options[i]] != null) {
@@ -1410,6 +1505,13 @@ app.post("/api/newsource", async (req, res) => {
                 files: files
             })
 
+            let updatedListings = []
+            if(user.result.listings) {
+                updatedListings = user.result.listings
+            }
+            updatedListings.push(sourceId)
+            await dbUpdateSet("users", {private: private}, {listings: updatedListings})
+
             if(result.code == 200) {
                 result.sourceId = sourceId
                 res.json(result)
@@ -1506,7 +1608,7 @@ app.get('/api/downloadcode', async (req, res) => {
         user = user.result
 
         if(user && user.status != "Deleted") {
-            if(source) {
+            if(source && source.status != "Deleted") {
                 if(user.purchases && user.purchases.includes(sourceId)) {
                     const fileIds = source.files
                     const name = source.name
