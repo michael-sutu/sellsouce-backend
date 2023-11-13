@@ -1011,7 +1011,9 @@ app.post("/api/getsources", async (req, res) => {
             if(type == "random") {
                 await client.connect()
                 const db = client.db("main")
-                const randomDocuments = await db.collection("sources").aggregate([{ $sample: { size: quantity } }]).toArray()
+                const randomDocuments = await db.collection("sources").aggregate([
+                    { $match: { status: { $ne: "Deleted" } } },
+                    { $sample: { size: quantity } }]).toArray()
 
                 let final = []
                 for(let i = 0; i < randomDocuments.length; i++) {
