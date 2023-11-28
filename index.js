@@ -522,12 +522,12 @@ app.post("/api/login", async (req, res) => {
             bcrypt.compare(req.body.password, result.password, (err, pass) => {
                 if (err) {
                     res.json({code: 500, err: err})
-                }
-    
-                if (pass) {
-                    res.json({code: 200, result: result.private})
                 } else {
-                    res.json({code: 401, errors: [2, "Invalid password."]})
+                    if (pass) {
+                        res.json({code: 200, result: result.private})
+                    } else {
+                        res.json({code: 401, errors: [2, "Invalid password."]})
+                    }
                 }
             })
         } else {
@@ -1660,10 +1660,10 @@ app.get('/api/downloadcode', async (req, res) => {
                         if (err) {
                           console.error(err)
                           res.status(500).send('Internal server error')
+                        } else {
+                            filesToDownload.forEach((file) => fs.unlinkSync(file.path))
+                            fs.unlinkSync(zipFilePath)
                         }
-                    
-                        filesToDownload.forEach((file) => fs.unlinkSync(file.path))
-                        fs.unlinkSync(zipFilePath)
                       })
                     })
                     archive.pipe(output)
