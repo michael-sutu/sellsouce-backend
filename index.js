@@ -516,7 +516,7 @@ app.get("/api/v", async (req, res) => {
 /* Post route to login a user. */
 app.post("/api/login", async (req, res) => {
     try {
-        let result = await dbGet("users", {email: req.body.email})
+        let result = await dbGet("users", {email: req.body.email.toLowerCase()})
         result = result.result
         if(result && result.status != "Deleted") {
             bcrypt.compare(req.body.password, result.password, (err, pass) => {
